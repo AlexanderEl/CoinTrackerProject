@@ -156,26 +156,28 @@ func (w *Wallet) fetchAddressData(address string) (*types.AddressData, error) {
 	var allTxs []types.Transaction
 
 	for {
-		log.Printf("Fetching with offset: %d\n", offset)
-
 		url := fmt.Sprintf("%s&offset=%d", baseURL, offset)
 		resp, err := http.Get(url)
 		if err != nil {
+			log.Println("Error while making request to API:", err)
 			return nil, fmt.Errorf("failed to fetch address data: %w", err)
 		}
 		defer resp.Body.Close()
 
 		if resp.StatusCode != http.StatusOK {
+			log.Println("Bad response code from API call:", resp.StatusCode)
 			return nil, fmt.Errorf("API request failed with status: %d", resp.StatusCode)
 		}
 
 		body, err := io.ReadAll(resp.Body)
 		if err != nil {
+			log.Println("Error while reading response body:", err)
 			return nil, fmt.Errorf("failed to read response body: %w", err)
 		}
 
 		var response types.RawAddressResponse
 		if err := json.Unmarshal(body, &response); err != nil {
+			log.Println("Error parsing JSON body", err)
 			return nil, fmt.Errorf("failed to parse API resonse body into raw response: %w", err)
 		}
 
@@ -190,8 +192,9 @@ func (w *Wallet) fetchAddressData(address string) (*types.AddressData, error) {
 
 		// Process transactions in batches and using partial parsing
 		for _, rawTx := range response.Txs {
-			var txMap map[string]interface{}
+			var txMap map[string]any
 			if err := json.Unmarshal(rawTx, &txMap); err != nil {
+				log.Println("Error parsing JSON transactions:", err)
 				return nil, fmt.Errorf("error while parsing transactions: %w", err)
 			}
 
@@ -209,11 +212,6 @@ func (w *Wallet) fetchAddressData(address string) (*types.AddressData, error) {
 		}
 
 		time.Sleep(time.Second * 15) // To avoid rate limiting based on their requirements: https://www.blockchain.com/explorer/api/q
-	}
-
-	if data.NumTxs != len(allTxs) {
-		msg := fmt.Errorf("transaction count mismatch - expected: %d, actual: %d", data.NumTxs, len(allTxs))
-		return nil, msg
 	}
 
 	data.Txs = allTxs // Set the parsed transactions
