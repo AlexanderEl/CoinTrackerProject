@@ -51,14 +51,10 @@ func (w *Wallet) AddAddress(address string) (bool, error) {
 		return exists, nil
 	}
 
-	if err = w.data.AddAddress(address); err != nil {
-		return false, fmt.Errorf("failure to add new address")
-	}
+	// Had an idea to launch a data fetch immediately after new address is inserted,
+	// yet due to API rate limiting being the bottleneck, this would only cause problems
 
-	// Launch a data fetch for new address in the background
-	go w.fetchAddressData(address)
-
-	return false, nil
+	return false, fmt.Errorf("failure to add new address")
 }
 
 func (w *Wallet) RemoveAddress(address string) (bool, error) {
@@ -77,12 +73,14 @@ func (w *Wallet) SyncWallets() {
 	addresses, err := w.data.GetAllAddresses()
 	if err != nil {
 		log.Printf("failed to get all addresses for wallet sync: %s", err)
+		return
 	}
 
-	results := make([]*types.AddressData, len(*addresses))
+	results := make([]*types.AddressData, 0, len(*addresses))
 	for _, address := range *addresses {
 		if data, err := w.fetchAddressData(address); err != nil {
 			log.Printf("Bad fetch for address: %s with error %s\n", address, err)
+			return // Exit as something is wrong with the API server/response
 		} else {
 			results = append(results, data)
 		}
@@ -91,35 +89,36 @@ func (w *Wallet) SyncWallets() {
 	}
 
 	// Start transaction to insert values
-	err = w.data.StartTransaction()
+	tx, err := w.data.StartTransaction()
+	defer tx.Rollback()
 	if err != nil {
 		log.Printf("failed to begin transaction during sync: %s", err)
+		return
 	}
 
 	for _, result := range results {
-		if err := w.data.UpdateBalance(result.Address, result.Balance); err != nil {
-			log.Println("Failed to update the balance for address: ", result.Address)
-			log.Printf("failed to update balance for address: %s with error: %s", result.Address, err)
+		if err := w.data.UpdateBalance(tx, result.Address, result.Balance); err != nil {
+			log.Printf("Failed to update the balance for address: %s with errror: %s", result.Address, err)
+			return
 		}
-		if err := w.data.UpdateTransactions(result); err != nil {
-			log.Println("Failed to update the transactions for address: ", result.Address)
-			log.Printf("failed to update balance for address: %s with error: %s", result.Address, err)
+		if err := w.data.UpdateTransactions(tx, result); err != nil {
+			log.Printf("Failed to update the transactions for address: %s with error: %s", result.Address, err)
+			return
 		}
 	}
 
-	if err := w.data.CommitTransaction(); err != nil {
-		log.Println("Failed to commit the transaction for setting fresh values")
-		log.Printf("failed to commit transaction: %s", err)
+	if err := w.data.CommitTransaction(tx); err != nil {
+		log.Println("Failed to commit the transaction for setting fresh values:", err)
+	} else {
+		log.Println("Successfully updated all values for wallet")
 	}
-
-	log.Println("Successfully updated all values for wallet")
 }
 
 func (w *Wallet) GetBalance(address string) (int64, error) {
 	return w.data.GetBalance(address)
 }
 
-func (w *Wallet) GetTransactions(address string) (*[]byte, error) {
+func (w *Wallet) GetTransactions(address string) (*[]any, error) {
 	txs, err := w.data.GetTransactions(address)
 	if err != nil {
 		return nil, fmt.Errorf("error while getting transactions: %w", err)
@@ -135,12 +134,7 @@ func (w *Wallet) GetTransactions(address string) (*[]byte, error) {
 		txList = append(txList, data)
 	}
 
-	// Convert the transactions list into a single JSON byte array
-	bytes, err := json.Marshal(txList)
-	if err != nil {
-		return nil, fmt.Errorf("error encoding transactions into JSON: %w", err)
-	}
-	return &bytes, nil
+	return &txList, err
 }
 
 func (w *Wallet) GetAllAddresses() (*[]string, error) {

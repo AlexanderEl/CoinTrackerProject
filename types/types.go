@@ -42,5 +42,5 @@ type HttpAddressRequestBody struct {
 type HttpDataResponse struct {
 	Address      string `json:"address"`
 	Balance      int64  `json:"balance"`
-	Transactions []byte `json:"transactions"`
+	Transactions any    `json:"transactions"`
 }

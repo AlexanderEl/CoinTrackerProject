@@ -26,7 +26,6 @@ type Database interface {
 
 type DatabaseConnection struct {
 	conn *sql.DB
-	tx   *sql.Tx
 }
 
 type WalletData struct {
@@ -79,7 +78,6 @@ func Initialize() (*DatabaseConnection, error) {
 
 	return &DatabaseConnection{
 		conn: db,
-		tx:   nil,
 	}, nil
 }
 
@@ -90,21 +88,17 @@ func (db *DatabaseConnection) Close() error {
 	return nil
 }
 
-func (db *DatabaseConnection) StartTransaction() error {
+func (db *DatabaseConnection) StartTransaction() (*sql.Tx, error) {
 	tx, err := db.conn.Begin()
 	if err != nil {
-		return fmt.Errorf("failed to begin transaction: %w", err)
+		return nil, fmt.Errorf("failed to begin transaction: %w", err)
 	}
-	defer tx.Rollback()
 
-	db.tx = tx
-	return nil
+	return tx, nil
 }
 
-func (db *DatabaseConnection) CommitTransaction() error {
-	err := db.tx.Commit()
-	db.tx = nil
-	return err
+func (db *DatabaseConnection) CommitTransaction(tx *sql.Tx) error {
+	return tx.Commit()
 }
 
 func (db *DatabaseConnection) CheckAddress(address string) (bool, error) {
@@ -146,7 +140,7 @@ func (db *DatabaseConnection) RemoveAddress(address string) error {
 	}
 
 	// Removal from transaction table
-	result, err = tx.Exec(removeTxQuery, address)
+	_, err = tx.Exec(removeTxQuery, address)
 	if err != nil {
 		return fmt.Errorf("failure to remove transactions: %w", err)
 	}
@@ -156,8 +150,8 @@ func (db *DatabaseConnection) RemoveAddress(address string) error {
 	return nil
 }
 
-func (db *DatabaseConnection) UpdateBalance(address string, balance int64) error {
-	result, err := db.tx.Exec(updateBalaceQuery, balance, address)
+func (db *DatabaseConnection) UpdateBalance(tx *sql.Tx, address string, balance int64) error {
+	result, err := tx.Exec(updateBalaceQuery, balance, address)
 	if err != nil {
 		return fmt.Errorf("failed to update address balance: %w", err)
 	}
@@ -169,16 +163,12 @@ func (db *DatabaseConnection) UpdateBalance(address string, balance int64) error
 	return nil
 }
 
-func (db *DatabaseConnection) UpdateTransactions(data *types.AddressData) error {
-	for _, tx := range data.Txs {
-		result, err := db.tx.Exec(updateTxQuery, tx.Index, tx.Hash, data.Address, tx.Data)
+func (db *DatabaseConnection) UpdateTransactions(tx *sql.Tx, data *types.AddressData) error {
+	for _, t := range data.Txs {
+		_, err := tx.Exec(updateTxQuery, t.Index, t.Hash, data.Address, t.Data)
 
 		if err != nil {
-			return fmt.Errorf("failed to update transactions for index %d: %w", tx.Index, err)
-		}
-		err = validateEffectedRows(&result, "transaction update")
-		if err != nil {
-			return err
+			return fmt.Errorf("failed to update transactions for index %d: %w", t.Index, err)
 		}
 	}
 

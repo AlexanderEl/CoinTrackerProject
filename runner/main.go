@@ -82,7 +82,6 @@ func syncWallets(w http.ResponseWriter, r *http.Request) {
 
 func retrieveWalletData(w http.ResponseWriter, r *http.Request) {
 	addresses, err := wm.GetAllAddresses()
-	log.Println(addresses)
 	if err != nil {
 		log.Println("Error while retriving wallet data:", err)
 		http.Error(w, "Error retrieving all addresses", http.StatusInternalServerError)
@@ -98,7 +97,7 @@ func retrieveWalletData(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		jsonBytes, err := wm.GetTransactions(address)
+		txList, err := wm.GetTransactions(address)
 		if err != nil {
 			log.Println("Error while retriving address transactions:", err)
 			http.Error(w, "Error retrieving all transactions", http.StatusInternalServerError)
@@ -108,7 +107,7 @@ func retrieveWalletData(w http.ResponseWriter, r *http.Request) {
 		responseAddressList[index] = types.HttpDataResponse{
 			Address:      address,
 			Balance:      balance,
-			Transactions: *jsonBytes,
+			Transactions: txList,
 		}
 	}
 
