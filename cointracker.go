@@ -54,7 +54,7 @@ func (w *Wallet) AddAddress(address string) (bool, error) {
 	// Had an idea to launch a data fetch immediately after new address is inserted,
 	// yet due to API rate limiting being the bottleneck, this would only cause problems
 
-	return false, fmt.Errorf("failure to add new address")
+	return false, w.data.AddAddress(address)
 }
 
 func (w *Wallet) RemoveAddress(address string) (bool, error) {
